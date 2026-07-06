@@ -15,7 +15,13 @@ AI_CHAT = 1
 class BotHandlers:
     def __init__(self):
         self.football_data = FootballData()
-        self.openai_client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY) if Config.OPENAI_API_KEY else None
+        self.openai_client = None
+        if Config.OPENAI_API_KEY:
+            try:
+                self.openai_client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
+                logger.info("OpenAI client initialized successfully")
+            except Exception as e:
+                logger.error(f"Error initializing OpenAI client: {e}")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -64,10 +70,10 @@ class BotHandlers:
             elif data == 'help':
                 await self.help_command(update, context)
             elif data.startswith('standings_'):
-                league_name = data.split('_')[1]
+                league_name = data.split('_', 1)[1]
                 await self.show_league_standings(update, context, league_name)
             elif data.startswith('insight_'):
-                match_id = data.split('_')[1]
+                match_id = data.split('_', 1)[1]
                 await self.show_match_insight(update, context, match_id)
             elif data == 'start':
                 await self.start_command(update, context)
@@ -80,9 +86,7 @@ class BotHandlers:
         try:
             if update.callback_query:
                 await update.callback_query.edit_message_text("⏳ Fetching live scores...")
-                chat_id = update.callback_query.message.chat_id
             else:
-                chat_id = update.effective_chat.id
                 await update.message.reply_text("⏳ Fetching live scores...")
             
             matches = await self.football_data.get_live_scores()
@@ -104,7 +108,6 @@ class BotHandlers:
                     except Exception as e:
                         logger.error(f"Error getting AI insight: {e}")
             
-            # Add refresh button
             keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data='live_scores')]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -245,14 +248,11 @@ class BotHandlers:
     async def ai_assistant(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """AI-powered football assistant"""
         if not self.openai_client:
+            msg = "🤖 AI assistant is currently unavailable. Please check your OpenAI API key."
             if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    "🤖 AI assistant is currently unavailable. Please check your OpenAI API key."
-                )
+                await update.callback_query.edit_message_text(msg)
             else:
-                await update.message.reply_text(
-                    "🤖 AI assistant is currently unavailable. Please check your OpenAI API key."
-                )
+                await update.message.reply_text(msg)
             return
         
         welcome_text = (
@@ -285,16 +285,13 @@ class BotHandlers:
             await update.message.reply_text("❌ AI chat cancelled.")
             return ConversationHandler.END
         
-        # Send typing indicator
         await update.message.chat.send_action(action="typing")
         
         try:
             response = await self.openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": """You are a knowledgeable football expert assistant. 
-                    Provide accurate, helpful information about football matches, rules, teams, players, 
-                    competitions, history, and statistics. Be enthusiastic and engaging."""},
+                    {"role": "system", "content": "You are a knowledgeable football expert assistant. Provide accurate, helpful information about football matches, rules, teams, players, competitions, history, and statistics. Be enthusiastic and engaging."},
                     {"role": "user", "content": question}
                 ],
                 max_tokens=500,
@@ -303,14 +300,12 @@ class BotHandlers:
             
             answer = response.choices[0].message.content
             
-            # Split long messages
             if len(answer) > 4096:
                 for i in range(0, len(answer), 4096):
                     await update.message.reply_text(f"🤖 {answer[i:i+4096]}")
             else:
                 await update.message.reply_text(f"🤖 {answer}")
             
-            # Ask if they want to continue
             keyboard = [
                 [InlineKeyboardButton("💬 Ask Another Question", callback_data='ai_assistant')],
                 [InlineKeyboardButton("🔙 Back to Menu", callback_data='start')]
@@ -336,14 +331,11 @@ class BotHandlers:
         matches = await self.football_data.get_live_scores()
         
         if not matches:
+            msg = "📭 No live matches to analyze at the moment."
             if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    "📭 No live matches to analyze at the moment."
-                )
+                await update.callback_query.edit_message_text(msg)
             else:
-                await update.message.reply_text(
-                    "📭 No live matches to analyze at the moment."
-                )
+                await update.message.reply_text(msg)
             return
         
         keyboard = []
@@ -355,10 +347,7 @@ class BotHandlers:
         keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data='start')])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        response_text = (
-            "⚽ **Select a match for AI insights:**\n\n"
-            "Get detailed analysis and predictions from our AI assistant."
-        )
+        response_text = "⚽ **Select a match for AI insights:**\n\nGet detailed analysis and predictions from our AI assistant."
         
         if update.callback_query:
             await update.callback_query.edit_message_text(
@@ -385,7 +374,6 @@ class BotHandlers:
             match = next((m for m in matches if m.get('id') == match_id), None)
             
             if not match:
-                # Try to find by home/away
                 for m in matches:
                     if f"{m['home']}_{m['away']}" == match_id:
                         match = m
@@ -394,7 +382,6 @@ class BotHandlers:
             if not match:
                 response_text = "❌ Match not found. Please try again."
             else:
-                # Get AI insight
                 insight = await self.football_data.get_match_insight(match)
                 
                 response_text = f"⚽ **Match Analysis** ⚽\n\n"
