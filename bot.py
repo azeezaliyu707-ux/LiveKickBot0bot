@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import sys
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from config import Config
@@ -15,12 +16,17 @@ logger = logging.getLogger(__name__)
 def main():
     """Start the bot"""
     try:
+        logger.info("LiveKickBot0bot is starting...")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"OpenAI API Key present: {bool(Config.OPENAI_API_KEY)}")
+        logger.info(f"Telegram Bot Token present: {bool(Config.TELEGRAM_BOT_TOKEN)}")
+        
+        # Validate token
+        if not Config.TELEGRAM_BOT_TOKEN:
+            raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables")
+        
         # Create the Application with proper configuration
-        application = (
-            Application.builder()
-            .token(Config.TELEGRAM_BOT_TOKEN)
-            .build()
-        )
+        application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
         
         # Initialize handlers
         handlers = BotHandlers()
@@ -55,10 +61,7 @@ def main():
         application.add_handler(CallbackQueryHandler(handlers.button_callback))
         
         # Start the bot
-        logger.info("LiveKickBot0bot is starting...")
-        logger.info(f"OpenAI API Key present: {bool(Config.OPENAI_API_KEY)}")
-        
-        # Run the bot
+        logger.info("Bot is starting polling...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
