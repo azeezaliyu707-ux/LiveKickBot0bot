@@ -1,4 +1,5 @@
 import asyncio
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from football_data import FootballData
@@ -49,88 +50,126 @@ class BotHandlers:
         
         data = query.data
         
-        if data == 'live_scores':
-            await self.show_live_scores(update, context)
-        elif data == 'fixtures':
-            await self.show_fixtures(update, context)
-        elif data == 'standings':
-            await self.show_standings_menu(update, context)
-        elif data == 'ai_assistant':
-            await self.ai_assistant(update, context)
-        elif data == 'match_insights':
-            await self.match_insights(update, context)
-        elif data == 'help':
-            await self.help_command(update, context)
-        elif data.startswith('standings_'):
-            league_name = data.split('_')[1]
-            await self.show_league_standings(update, context, league_name)
-        elif data.startswith('insight_'):
-            match_id = data.split('_')[1]
-            await self.show_match_insight(update, context, match_id)
+        try:
+            if data == 'live_scores':
+                await self.show_live_scores(update, context)
+            elif data == 'fixtures':
+                await self.show_fixtures(update, context)
+            elif data == 'standings':
+                await self.show_standings_menu(update, context)
+            elif data == 'ai_assistant':
+                await self.ai_assistant(update, context)
+            elif data == 'match_insights':
+                await self.match_insights(update, context)
+            elif data == 'help':
+                await self.help_command(update, context)
+            elif data.startswith('standings_'):
+                league_name = data.split('_')[1]
+                await self.show_league_standings(update, context, league_name)
+            elif data.startswith('insight_'):
+                match_id = data.split('_')[1]
+                await self.show_match_insight(update, context, match_id)
+            elif data == 'start':
+                await self.start_command(update, context)
+        except Exception as e:
+            logger.error(f"Error in button_callback: {e}")
+            await query.edit_message_text("❌ An error occurred. Please try again.")
     
     async def show_live_scores(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show live scores"""
-        await update.callback_query.edit_message_text("⏳ Fetching live scores...")
-        
-        matches = await self.football_data.get_live_scores()
-        
-        if not matches:
-            await update.callback_query.edit_message_text(
-                "📭 No live matches at the moment. Check back later!"
-            )
-            return
-        
-        response_text = "⚽ **LIVE MATCHES** ⚽\n\n"
-        
-        for match in matches:
-            response_text += self.football_data.format_live_score(match)
-            response_text += "\n" + "─"*30 + "\n\n"
-        
-        # Add AI insight for first match if available
-        if matches and self.openai_client:
-            try:
-                insight = await self.football_data.get_match_insight(matches[0])
-                response_text += f"🤖 **AI Match Insight:**\n{insight}\n\n"
-            except:
-                pass
-        
-        # Add refresh button
-        keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data='live_scores')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.callback_query.edit_message_text(
-            response_text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        try:
+            if update.callback_query:
+                await update.callback_query.edit_message_text("⏳ Fetching live scores...")
+                chat_id = update.callback_query.message.chat_id
+            else:
+                chat_id = update.effective_chat.id
+                await update.message.reply_text("⏳ Fetching live scores...")
+            
+            matches = await self.football_data.get_live_scores()
+            
+            if not matches:
+                response_text = "📭 No live matches at the moment. Check back later!"
+            else:
+                response_text = "⚽ **LIVE MATCHES** ⚽\n\n"
+                
+                for match in matches:
+                    response_text += self.football_data.format_live_score(match)
+                    response_text += "\n" + "─"*30 + "\n\n"
+                
+                # Add AI insight for first match if available
+                if matches and self.openai_client:
+                    try:
+                        insight = await self.football_data.get_match_insight(matches[0])
+                        response_text += f"🤖 **AI Match Insight:**\n{insight}\n\n"
+                    except Exception as e:
+                        logger.error(f"Error getting AI insight: {e}")
+            
+            # Add refresh button
+            keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data='live_scores')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            logger.error(f"Error in show_live_scores: {e}")
+            error_msg = "❌ Error fetching live scores. Please try again."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
     
     async def show_fixtures(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show today's fixtures"""
-        await update.callback_query.edit_message_text("⏳ Fetching today's fixtures...")
-        
-        fixtures = await self.football_data.get_fixtures()
-        
-        if not fixtures:
-            await update.callback_query.edit_message_text(
-                "📭 No fixtures scheduled for today."
-            )
-            return
-        
-        response_text = "📅 **TODAY'S FIXTURES** 📅\n\n"
-        
-        for fixture in fixtures[:12]:
-            response_text += f"⚽ {fixture['home']} vs {fixture['away']}\n"
-            response_text += f"🏆 {fixture['league']}\n"
-            response_text += f"🕐 {fixture['time']} - {fixture['status']}\n\n"
-        
-        keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data='fixtures')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.callback_query.edit_message_text(
-            response_text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        try:
+            if update.callback_query:
+                await update.callback_query.edit_message_text("⏳ Fetching today's fixtures...")
+            else:
+                await update.message.reply_text("⏳ Fetching today's fixtures...")
+            
+            fixtures = await self.football_data.get_fixtures()
+            
+            if not fixtures:
+                response_text = "📭 No fixtures scheduled for today."
+            else:
+                response_text = "📅 **TODAY'S FIXTURES** 📅\n\n"
+                
+                for fixture in fixtures[:12]:
+                    response_text += f"⚽ {fixture['home']} vs {fixture['away']}\n"
+                    response_text += f"🏆 {fixture['league']}\n"
+                    response_text += f"🕐 {fixture['time']} - {fixture['status']}\n\n"
+            
+            keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data='fixtures')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            logger.error(f"Error in show_fixtures: {e}")
+            error_msg = "❌ Error fetching fixtures. Please try again."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
     
     async def show_standings_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show league selection menu for standings"""
@@ -144,52 +183,79 @@ class BotHandlers:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.callback_query.edit_message_text(
-            "🏆 **Select a league to view standings:**",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                "🏆 **Select a league to view standings:**",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                "🏆 **Select a league to view standings:**",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
     
     async def show_league_standings(self, update: Update, context: ContextTypes.DEFAULT_TYPE, league_name):
         """Show league standings"""
-        await update.callback_query.edit_message_text(f"⏳ Fetching {league_name} standings...")
-        
-        standings = await self.football_data.get_league_standings(league_name)
-        
-        if not standings:
-            await update.callback_query.edit_message_text(
-                f"❌ Could not fetch standings for {league_name}."
-            )
-            return
-        
-        response_text = f"🏆 **{league_name} Standings** 🏆\n\n"
-        
-        for team in standings:
-            response_text += f"{team['position']}. {team['team']} - {team['points']} pts\n"
-            response_text += f"   P: {team['played']} W: {team['won']} D: {team['drawn']} L: {team['lost']}\n"
-            response_text += f"   GF: {team['goals_for']} GA: {team['goals_against']}\n\n"
-        
-        keyboard = [
-            [InlineKeyboardButton("🔙 Back to Leagues", callback_data='standings')],
-            [InlineKeyboardButton("🔄 Refresh", callback_data=f'standings_{league_name}')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.callback_query.edit_message_text(
-            response_text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        try:
+            if update.callback_query:
+                await update.callback_query.edit_message_text(f"⏳ Fetching {league_name} standings...")
+            else:
+                await update.message.reply_text(f"⏳ Fetching {league_name} standings...")
+            
+            standings = await self.football_data.get_league_standings(league_name)
+            
+            if not standings:
+                response_text = f"❌ Could not fetch standings for {league_name}."
+            else:
+                response_text = f"🏆 **{league_name} Standings** 🏆\n\n"
+                
+                for team in standings:
+                    response_text += f"{team['position']}. {team['team']} - {team['points']} pts\n"
+                    response_text += f"   P: {team['played']} W: {team['won']} D: {team['drawn']} L: {team['lost']}\n"
+                    response_text += f"   GF: {team['goals_for']} GA: {team['goals_against']}\n\n"
+            
+            keyboard = [
+                [InlineKeyboardButton("🔙 Back to Leagues", callback_data='standings')],
+                [InlineKeyboardButton("🔄 Refresh", callback_data=f'standings_{league_name}')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            logger.error(f"Error in show_league_standings: {e}")
+            error_msg = f"❌ Error fetching {league_name} standings. Please try again."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
     
     async def ai_assistant(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """AI-powered football assistant"""
         if not self.openai_client:
-            await update.callback_query.edit_message_text(
-                "🤖 AI assistant is currently unavailable. Please check your OpenAI API key."
-            )
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    "🤖 AI assistant is currently unavailable. Please check your OpenAI API key."
+                )
+            else:
+                await update.message.reply_text(
+                    "🤖 AI assistant is currently unavailable. Please check your OpenAI API key."
+                )
             return
         
-        await update.callback_query.edit_message_text(
+        welcome_text = (
             "🤖 **AI Football Assistant** 🤖\n\n"
             "Ask me anything about football! I can help with:\n"
             "• 📊 Match predictions and analysis\n"
@@ -199,6 +265,11 @@ class BotHandlers:
             "• 📈 Team performance analysis\n\n"
             "**Type your question below** (or type /cancel to exit):"
         )
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(welcome_text, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(welcome_text, parse_mode='Markdown')
         
         return AI_CHAT
     
@@ -265,9 +336,14 @@ class BotHandlers:
         matches = await self.football_data.get_live_scores()
         
         if not matches:
-            await update.callback_query.edit_message_text(
-                "📭 No live matches to analyze at the moment."
-            )
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    "📭 No live matches to analyze at the moment."
+                )
+            else:
+                await update.message.reply_text(
+                    "📭 No live matches to analyze at the moment."
+                )
             return
         
         keyboard = []
@@ -279,53 +355,79 @@ class BotHandlers:
         keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data='start')])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.callback_query.edit_message_text(
+        response_text = (
             "⚽ **Select a match for AI insights:**\n\n"
-            "Get detailed analysis and predictions from our AI assistant.",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
+            "Get detailed analysis and predictions from our AI assistant."
         )
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                response_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                response_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
     
     async def show_match_insight(self, update: Update, context: ContextTypes.DEFAULT_TYPE, match_id):
         """Show detailed insight for a specific match"""
-        await update.callback_query.edit_message_text("🤖 Generating AI insights...")
-        
-        matches = await self.football_data.get_live_scores()
-        match = next((m for m in matches if m.get('id') == match_id), None)
-        
-        if not match:
-            # Try to find by home/away
-            for m in matches:
-                if f"{m['home']}_{m['away']}" == match_id:
-                    match = m
-                    break
-        
-        if not match:
-            await update.callback_query.edit_message_text(
-                "❌ Match not found. Please try again."
-            )
-            return
-        
-        # Get AI insight
-        insight = await self.football_data.get_match_insight(match)
-        
-        response_text = f"⚽ **Match Analysis** ⚽\n\n"
-        response_text += f"**{match['home']} {match['home_score']} - {match['away_score']} {match['away']}**\n"
-        response_text += f"🏆 {match['league']} | 🕐 {match['minute']}'\n\n"
-        response_text += f"🤖 **AI Analysis:**\n{insight}\n\n"
-        
-        keyboard = [
-            [InlineKeyboardButton("🔄 Refresh Insight", callback_data=f'insight_{match_id}')],
-            [InlineKeyboardButton("📊 Live Score", callback_data='live_scores')],
-            [InlineKeyboardButton("🔙 Back", callback_data='match_insights')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.callback_query.edit_message_text(
-            response_text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        try:
+            if update.callback_query:
+                await update.callback_query.edit_message_text("🤖 Generating AI insights...")
+            else:
+                await update.message.reply_text("🤖 Generating AI insights...")
+            
+            matches = await self.football_data.get_live_scores()
+            match = next((m for m in matches if m.get('id') == match_id), None)
+            
+            if not match:
+                # Try to find by home/away
+                for m in matches:
+                    if f"{m['home']}_{m['away']}" == match_id:
+                        match = m
+                        break
+            
+            if not match:
+                response_text = "❌ Match not found. Please try again."
+            else:
+                # Get AI insight
+                insight = await self.football_data.get_match_insight(match)
+                
+                response_text = f"⚽ **Match Analysis** ⚽\n\n"
+                response_text += f"**{match['home']} {match['home_score']} - {match['away_score']} {match['away']}**\n"
+                response_text += f"🏆 {match['league']} | 🕐 {match['minute']}'\n\n"
+                response_text += f"🤖 **AI Analysis:**\n{insight}\n\n"
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Refresh Insight", callback_data=f'insight_{match_id}')],
+                [InlineKeyboardButton("📊 Live Score", callback_data='live_scores')],
+                [InlineKeyboardButton("🔙 Back", callback_data='match_insights')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            logger.error(f"Error in show_match_insight: {e}")
+            error_msg = "❌ Error generating insights. Please try again."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Help command"""
