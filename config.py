@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
 class Config:
@@ -9,6 +10,10 @@ class Config:
     
     # OpenAI API Key
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    
+    # Validate required keys
+    if not TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables")
     
     # Default leagues to track
     DEFAULT_LEAGUES = [
